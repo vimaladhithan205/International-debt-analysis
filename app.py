@@ -4,270 +4,352 @@ import plotly.express as px
 import mysql.connector
 
 st.set_page_config(page_title="International Debt Analysis", layout="wide")
-
-@st.cache_data(ttl=300)
-def read_sql(query, params=None):
-    conn = mysql.connector.connect(
-        host=st.secrets.get("mysql_host", "localhost"),
-        user=st.secrets.get("mysql_user", "root"),
-        password=st.secrets["mysql_password"],
-        database="international_debt_final",
-    )
-    try:
-        cur = conn.cursor(dictionary=True)
-        try:
-            cur.execute(query, params or ())
-            return pd.DataFrame(cur.fetchall(), columns=cur.column_names)
-        finally:
-            cur.close()
-    finally:
-        conn.close()
+st.title("International Debt Analysis")
 
 INDICATORS = {
-    "Total external debt": "DT.DOD.DECT.CD",
-    "Long-term debt": "DT.DOD.DLXF.CD",
-    "Short-term debt": "DT.DOD.DSTC.CD",
+    "Total External Debt": "DT.DOD.DECT.CD",
+    "Long-term Debt": "DT.DOD.DLXF.CD",
+    "Short-term Debt": "DT.DOD.DSTC.CD",
 }
+BILLION = 1_000_000_000
 
-COUNTRY_ONLY = "c.`Region` <> 'Unknown'"
+@st.cache_data(ttl=300)
+def get_data(query, params=None):
+    """Run a parameterized SELECT query and close the connection."""
+    try:
+        cfg = st.secrets["mysql"] if "mysql" in st.secrets else {}
+        host = cfg.get("host", st.secrets.get("mysql_host", "localhost"))
+        user = cfg.get("user", st.secrets.get("mysql_user", "root"))
+        password = cfg.get("password", st.secrets.get("mysql_password", ""))
+        database = cfg.get("database", st.secrets.get("mysql_database", "international_debt_final"))
+        port = int(cfg.get("port", st.secrets.get("mysql_port", 3306)))
+    except (FileNotFoundError, KeyError):
+        host, user, password, database, port = "localhost", "root", "", "international_debt_final", 3306
 
-st.sidebar.title("International Debt")
-page = st.sidebar.radio("Choose a page", ["Dashboard", "SQL Queries"])
+    connection = mysql.connector.connect(
+        host=host, user=user, password=password, database=database,
+        port=port, connection_timeout=10
+    )
+    try:
+        cursor = connection.cursor(dictionary=True)
+        try:
+            cursor.execute(query, params or ())
+            return pd.DataFrame(cursor.fetchall(), columns=cursor.column_names)
+        finally:
+            cursor.close()
+    finally:
+        connection.close()
 
-try:
-    read_sql("select 1 as test")
-except Exception as error:
-    st.error("Database connection failed. Check MySQL and your password.")
-    st.code(str(error))
-    st.stop()
 
+def one_record_per_key(frame):
+    """Do not silently double-count duplicated country/year/indicator rows."""
+    keys = ["Code", "Year", "Indicator"]
+    duplicate_count = int(frame.duplicated(keys).sum())
+    if duplicate_count:
+        st.error(f"Found {duplicate_count} duplicate country-year-indicator records. "
+                 "Please validate the debt_data table before analysis.")
+        st.stop()
+    return frame
+
+
+def comparable_years(frame):
+    """Yearly totals using countries with observations in every displayed year."""
+    pivot = frame.pivot(index="Code", columns="Year", values="Debt")
+    pivot = pivot.dropna()
+    if pivot.empty:
+        return pd.DataFrame(columns=["Year", "Debt"]), 0
+    totals = pivot.sum(axis=0).reset_index()
+    totals.columns = ["Year", "Debt"]
+    return totals.sort_values("Year"), len(pivot)
+
+
+with st.sidebar:
+    st.header("Pages")
+    page = st.radio("Navigation", ["Dashboard", "SQL Queries"],
+                    label_visibility="collapsed")
 
 if page == "Dashboard":
-    st.title("International Debt Analysis")
-    years_df = read_sql("select distinct `Year` from debt_data order by `Year` desc")
-    country_df = read_sql("select `Code`, `Short Name` from countries where `Region` <> 'Unknown' order by `Short Name`")
-    region_df = read_sql("select distinct `Region` from countries where `Region` <> 'Unknown' order by `Region`")
-    if years_df.empty:
-        st.error("No debt records found in international_debt_final.")
+    try:
+        years = get_data("SELECT DISTINCT `Year` FROM debt_data ORDER BY `Year` DESC")
+        countries = get_data(
+            "SELECT `Code`, `Short Name`, `Region` FROM countries "
+            "WHERE `Region` <> 'Unknown' AND `Region` IS NOT NULL "
+            "ORDER BY `Short Name`"
+        )
+    except Exception:
+        st.error("Cannot connect to MySQL. Check the server, database and .streamlit/secrets.toml.")
         st.stop()
 
-    country_choices = {r["Short Name"]: r["Code"] for _, r in country_df.iterrows()}
-    a, b, c, d = st.columns(4)
-    with a:
-        year = st.selectbox("Year", years_df["Year"].tolist())
-    with b:
-        country = st.selectbox("Country", ["All countries"] + list(country_choices))
-    with c:
-        region = st.selectbox("Region", ["All regions"] + region_df["Region"].tolist())
-    with d:
-        indicator = st.selectbox("Debt indicator", list(INDICATORS))
-
-    conditions = [COUNTRY_ONLY, "d.`Year` = %(year)s", "d.`Series Code` = %(code)s"]
-    params = {"year": int(year), "code": INDICATORS[indicator]}
-    if country != "All countries":
-        conditions.append("d.`Country Code` = %(country)s")
-        params["country"] = country_choices[country]
-    if region != "All regions":
-        conditions.append("c.`Region` = %(region)s")
-        params["region"] = region
-
-    data = read_sql(f"""
-        select d.`Country Name` as Country, d.`Year` as Year,
-               d.`Value` / 1000000000 as Debt_Billion,
-               c.`Region` as Region
-        from debt_data d
-        join countries c on d.`Country Code` = c.`Code`
-        where {' and '.join(conditions)}
-    """, params)
-
-    selected = data.dropna(subset=["Debt_Billion"])
-    selected_total = selected["Debt_Billion"].sum()
-    available_countries = selected["Country"].nunique()
-    selection_label = f"{country} | {region} | {year} | {indicator}"
-    k1, k2, k3, k4 = st.columns(4)
-    k1.metric("Countries with data", f"{available_countries:,}")
-    k2.metric("Selected debt (US$ bn)", f"{selected_total:,.2f}")
-    k3.metric("Selected year", str(year))
-    k4.metric("Debt type", indicator)
-
-    if data.empty or data["Debt_Billion"].notna().sum() == 0:
-        st.warning("No reported/available values for these filters. Try another year or indicator.")
+    if years.empty or countries.empty:
+        st.warning("No countries or years available.")
         st.stop()
 
-    country_debt = data.dropna(subset=["Debt_Billion"]).groupby("Country", as_index=False)["Debt_Billion"].sum()
-    highest = country_debt.nlargest(10, "Debt_Billion")
-    lowest = country_debt[country_debt["Debt_Billion"] > 0].nsmallest(10, "Debt_Billion")
+    st.subheader("Filters")
+    f1, f2, f3, f4 = st.columns(4)
+    with f1:
+        year = int(st.selectbox("Year", years["Year"].dropna().astype(int).tolist()))
+    with f2:
+        region = st.selectbox("Region", ["All Regions"] + sorted(countries["Region"].unique()))
+    allowed = countries if region == "All Regions" else countries[countries["Region"] == region]
+    with f3:
+        country = st.selectbox("Country", ["All Countries"] + allowed["Short Name"].tolist())
+    with f4:
+        debt_type = st.selectbox("Debt Type", list(INDICATORS))
 
-    st.subheader("Country Debt Ranking")
+    sql = """
+        SELECT d.`Country Code` AS Code, c.`Short Name` AS Country,
+               c.`Region` AS Region, d.`Year` AS Year,
+               d.`Series Code` AS Indicator, d.`Value` / 1000000000 AS Debt
+        FROM debt_data d
+        JOIN countries c ON d.`Country Code` = c.`Code`
+        WHERE c.`Region` <> 'Unknown'
+          AND d.`Series Code` IN (%s, %s, %s)
+          AND d.`Value` IS NOT NULL
+    """
+    parameters = list(INDICATORS.values())
+    if region != "All Regions":
+        sql += " AND c.`Region` = %s"
+        parameters.append(region)
+    if country != "All Countries":
+        selected_code = allowed.loc[allowed["Short Name"] == country, "Code"].iloc[0]
+        sql += " AND d.`Country Code` = %s"
+        parameters.append(selected_code)
+
+    try:
+        df = get_data(sql, tuple(parameters))
+    except Exception:
+        st.error("Unable to load debt records. Verify the database tables and columns.")
+        st.stop()
+
+    if df.empty:
+        st.warning("No data available for the chosen filters.")
+        st.stop()
+
+    df["Year"] = pd.to_numeric(df["Year"], errors="coerce")
+    df["Debt"] = pd.to_numeric(df["Debt"], errors="coerce")
+    df = df.dropna(subset=["Year", "Debt"])
+    df["Year"] = df["Year"].astype(int)
+    df = one_record_per_key(df)
+
+    selected = df[df["Indicator"] == INDICATORS[debt_type]]
+    current = selected[selected["Year"] == year].copy()
+    if current.empty:
+        st.warning("No debt data for the selected year.")
+        st.stop()
+
+    by_country = current.groupby(["Code", "Country", "Region"], as_index=False)["Debt"].sum()
+    by_region = by_country.groupby("Region", as_index=False)["Debt"].sum()
+    total = by_country["Debt"].sum()
+    years_comp, common_count = comparable_years(selected)
+    st.caption(f"Trend comparisons use {common_count} countries with data in every displayed year. "
+               "Country/region charts use available observations in the selected year.")
+
+    m1, m2, m3, m4 = st.columns(4)
+    m1.metric("Countries", len(by_country))
+    m2.metric("Total Debt (US$ bn)", f"{total:,.2f}")
+    m3.metric("Average per Country (US$ bn)", f"{by_country['Debt'].mean():,.2f}")
+    m4.metric("Selected Year", year)
+
+    st.subheader("1. Top 10 Countries")
+    top10 = by_country.nlargest(10, "Debt")
+    st.plotly_chart(px.bar(top10.sort_values("Debt"), x="Debt", y="Country",
+                           orientation="h", labels={"Debt": "US$ billion"}),
+                    use_container_width=True)
+
+    st.subheader("2. Comparable Debt Trend")
+    if len(years_comp) >= 2:
+        st.plotly_chart(px.line(years_comp, x="Year", y="Debt", markers=True,
+                                labels={"Debt": "US$ billion"}), use_container_width=True)
+    else:
+        st.info("At least two comparable years are needed.")
+
     left, right = st.columns(2)
     with left:
-        st.plotly_chart(px.bar(highest.sort_values("Debt_Billion"), x="Debt_Billion", y="Country",
-                               orientation="h", title="Highest values (US$ billion)"), use_container_width=True)
+        st.subheader("3. Regional Debt Share")
+        if region == "All Regions" and country == "All Countries" and len(by_region) > 1:
+            st.plotly_chart(px.pie(by_region[by_region["Debt"] > 0], names="Region",
+                                   values="Debt", hole=0.45), use_container_width=True)
+        else:
+            st.info("Select All Regions and All Countries.")
     with right:
-        st.plotly_chart(px.bar(lowest.sort_values("Debt_Billion", ascending=False), x="Debt_Billion", y="Country",
-                               orientation="h", title="Lowest positive values (US$ billion)"), use_container_width=True)
+        st.subheader("4. Debt Composition")
+        component = df[df["Year"] == year].groupby("Indicator")["Debt"].sum()
+        type_df = pd.DataFrame({
+            "Type": ["Long-term Debt", "Short-term Debt"],
+            "Debt": [component.get(INDICATORS["Long-term Debt"], float("nan")),
+                     component.get(INDICATORS["Short-term Debt"], float("nan"))],
+        }).dropna()
+        if not type_df.empty:
+            st.plotly_chart(px.bar(type_df, x="Type", y="Debt",
+                                   labels={"Debt": "US$ billion"}), use_container_width=True)
+        else:
+            st.info("Debt components are unavailable.")
 
-    trend_conditions = [COUNTRY_ONLY, "d.`Series Code` = %(code)s"]
-    trend_params = {"code": INDICATORS[indicator]}
-    if country != "All countries":
-        trend_conditions.append("d.`Country Code` = %(country)s")
-        trend_params["country"] = country_choices[country]
-    if region != "All regions":
-        trend_conditions.append("c.`Region` = %(region)s")
-        trend_params["region"] = region
-    trend = read_sql(f"""
-        select d.`Year` as Year, sum(d.`Value`) / 1000000000 as Debt_Billion
-        from debt_data d join countries c on d.`Country Code` = c.`Code`
-        where {' and '.join(trend_conditions)} and d.`Value` is not null
-        group by d.`Year` order by d.`Year`
-    """, trend_params)
+    st.subheader("5. Year-over-Year Change")
+    previous = selected[selected["Year"] == year - 1][["Code", "Country", "Debt"]]
+    now = current[["Code", "Country", "Debt"]]
+    change = now.merge(previous, on="Code", suffixes=("_now", "_prev"))
+    if not change.empty:
+        change["Difference"] = change["Debt_now"] - change["Debt_prev"]
+        change["Country"] = change["Country_now"]
+        shown = pd.concat([change.nsmallest(8, "Difference"),
+                           change.nlargest(8, "Difference")]).drop_duplicates("Code")
+        st.plotly_chart(px.bar(shown.sort_values("Difference"), x="Difference",
+                               y="Country", orientation="h",
+                               color="Difference", color_continuous_scale="RdYlGn"),
+                        use_container_width=True)
+    else:
+        st.info("No countries have values in both the selected and previous year.")
 
-    st.subheader("Debt Trend and Region")
+    st.subheader("6. Country-Year Heatmap")
+    heat = selected[selected["Code"].isin(top10["Code"])].pivot(
+        index="Country", columns="Year", values="Debt"
+    )
+    if not heat.empty:
+        st.plotly_chart(px.imshow(heat, aspect="auto",
+                                  labels={"color": "US$ billion"}), use_container_width=True)
+
     left, right = st.columns(2)
+    positive = by_country[by_country["Debt"] > 0]
     with left:
-        st.plotly_chart(px.line(trend, x="Year", y="Debt_Billion", markers=True,
-                                title="Debt stock over time (US$ billion)"), use_container_width=True)
+        st.subheader("7. Top 5 Concentration")
+        if len(positive) > 5:
+            top5_sum = positive.nlargest(5, "Debt")["Debt"].sum()
+            groups = pd.DataFrame({
+                "Group": ["Top 5 Countries", "Other Countries"],
+                "Debt": [top5_sum, positive["Debt"].sum() - top5_sum],
+            })
+            st.plotly_chart(px.pie(groups, names="Group", values="Debt", hole=0.45),
+                            use_container_width=True)
+        else:
+            st.info("Choose at least six countries with positive debt.")
+
+    region_average = None
     with right:
-        region_data = data.dropna(subset=["Debt_Billion"]).groupby("Region", as_index=False)["Debt_Billion"].sum()
-        region_data = region_data[region_data["Debt_Billion"] > 0]
-        if len(region_data) > 1:
-            st.plotly_chart(px.pie(region_data, names="Region", values="Debt_Billion",
-                                    hole=0.3, title="Regional share of selected debt stock"), use_container_width=True)
+        st.subheader("8. Country vs Regional Average")
+        if country != "All Countries":
+            selected_region = current["Region"].iloc[0]
+            try:
+                regional = get_data("""
+                    SELECT d.`Country Code` AS Code,
+                           d.`Value` / 1000000000 AS Debt
+                    FROM debt_data d JOIN countries c ON d.`Country Code` = c.`Code`
+                    WHERE c.`Region` = %s AND d.`Year` = %s
+                      AND d.`Series Code` = %s AND d.`Value` IS NOT NULL
+                """, (selected_region, year, INDICATORS[debt_type]))
+                if regional["Code"].duplicated().any():
+                    st.warning("Duplicate regional observations: comparison unavailable.")
+                elif not regional.empty:
+                    region_average = regional["Debt"].mean()
+                    comparison = pd.DataFrame({
+                        "Category": [country, "Regional Average"],
+                        "Debt": [float(current["Debt"].iloc[0]), region_average],
+                    })
+                    st.plotly_chart(px.bar(comparison, x="Category", y="Debt"),
+                                    use_container_width=True)
+            except Exception:
+                st.warning("Regional average could not be loaded.")
         else:
-            st.info("Select All regions and All countries to compare regional shares.")
+            st.info("Select one country to see its regional comparison.")
 
-    st.subheader("Debt Types")
-    compare_conditions = [COUNTRY_ONLY, "d.`Year` = %(year)s",
-                          "d.`Series Code` in ('DT.DOD.DECT.CD', 'DT.DOD.DLXF.CD', 'DT.DOD.DSTC.CD')"]
-    compare_params = {"year": int(year)}
-    if country != "All countries":
-        compare_conditions.append("d.`Country Code` = %(country)s")
-        compare_params["country"] = country_choices[country]
-    if region != "All regions":
-        compare_conditions.append("c.`Region` = %(region)s")
-        compare_params["region"] = region
-    compare = read_sql(f"""
-        select d.`Series Code` as Code, sum(d.`Value`) / 1000000000 as Debt_Billion
-        from debt_data d join countries c on d.`Country Code` = c.`Code`
-        where {' and '.join(compare_conditions)}
-        group by d.`Series Code`
-    """, compare_params)
-    compare["Indicator"] = compare["Code"].map({v: k for k, v in INDICATORS.items()}) if not compare.empty else []
-    compare = compare.dropna(subset=["Debt_Billion"])
-    if not compare.empty:
-        st.plotly_chart(px.bar(compare, x="Indicator", y="Debt_Billion",
-                                title="External debt stocks (US$ billion)"), use_container_width=True)
+    st.subheader("9. Annual Debt Growth Rate")
+    growth = years_comp.copy()
+    if len(growth) >= 2:
+        growth["Growth (%)"] = growth["Debt"].pct_change(fill_method=None) * 100
+        growth.loc[growth["Year"].diff() != 1, "Growth (%)"] = float("nan")
+        growth.loc[growth["Debt"].shift(1) <= 0, "Growth (%)"] = float("nan")
+        valid_growth = growth.dropna(subset=["Growth (%)"])
+        if not valid_growth.empty:
+            st.plotly_chart(px.line(valid_growth, x="Year", y="Growth (%)",
+                                    markers=True), use_container_width=True)
+        else:
+            st.info("No consecutive years with valid growth rates.")
     else:
-        st.info("No maturity-comparison values are available for these filters.")
-    st.caption("Note: Total external debt includes long-term and short-term debt. Do not add these bars together.")
+        valid_growth = pd.DataFrame(columns=["Year", "Growth (%)"])
+        st.info("At least two comparable years are needed.")
 
-    st.subheader("Key Insights")
+    st.header("Data-Driven Insights")
+    highest = by_country.loc[by_country["Debt"].idxmax()]
+    st.write(f"**1. Highest debt:** {highest['Country']} has the largest {debt_type.lower()} "
+             f"among the selected countries in {year}: US$ {highest['Debt']:,.2f} billion.")
 
-    valid = country_debt.copy()
-    positive = valid[valid["Debt_Billion"] > 0]
-    scope_total = valid["Debt_Billion"].sum()
-    scope_name = country if country != "All countries" else (
-        region if region != "All regions" else "all individual countries"
-    )
-
-    st.markdown(f"**Selected view:** {indicator}, {year}, {scope_name}.")
-    st.write(
-        f"**Coverage:** {len(valid)} country/countries have available values in this selection. "
-        "Missing observations are not counted as zero."
-    )
-
-    if len(valid) == 1:
-        row = valid.iloc[0]
-        st.write(
-            f"**Country insight:** {row['Country']} has "
-            f"US$ {row['Debt_Billion']:,.2f} billion in {indicator.lower()} for {year}."
-        )
-    elif len(valid) > 1:
-        highest_row = valid.loc[valid["Debt_Billion"].idxmax()]
-        st.write(
-            f"**Highest debt in this selection:** {highest_row['Country']} "
-            f"(US$ {highest_row['Debt_Billion']:,.2f} billion)."
-        )
-        if not positive.empty:
-            lowest_row = positive.loc[positive["Debt_Billion"].idxmin()]
-            st.write(
-                f"**Lowest positive debt:** {lowest_row['Country']} "
-                f"(US$ {lowest_row['Debt_Billion']:,.2f} billion)."
-            )
-        if scope_total > 0:
-            top_count = min(3, len(valid))
-            share = valid.nlargest(top_count, "Debt_Billion")["Debt_Billion"].sum() / scope_total * 100
-            st.write(
-                f"**Concentration:** The top {top_count} countries hold "
-                f"{share:.1f}% of the selected countries' combined debt."
-            )
-
-   
-    clean_trend = trend.dropna(subset=["Debt_Billion"]).sort_values("Year")
-    history = clean_trend[clean_trend["Year"] <= int(year)]
-    current_match = history[history["Year"] == int(year)]
-    prior = history[history["Year"] < int(year)]
-    if not current_match.empty and not prior.empty:
-        current_value = float(current_match.iloc[-1]["Debt_Billion"])
-        previous = prior.iloc[-1]
-        previous_value = float(previous["Debt_Billion"])
-        change = current_value - previous_value
-        prev_year = int(previous["Year"])
-        if prev_year == int(year) - 1:
-            period = f"{prev_year} to {year}"
-        else:
-            period = f"{prev_year} to {year} (not consecutive years)"
-        movement = "increased" if change > 0 else "decreased" if change < 0 else "was unchanged"
-        if previous_value != 0:
-            change_pct = change / abs(previous_value) * 100
-            st.write(
-                f"**Change over time:** The selected debt {movement} by "
-                f"US$ {abs(change):,.2f} billion ({abs(change_pct):.1f}%) from {period}."
-            )
-        else:
-            st.write(
-                f"**Change over time:** The selected debt {movement} by "
-                f"US$ {abs(change):,.2f} billion from {period}. "
-                "A percentage cannot be calculated from a zero starting value."
-            )
+    if len(years_comp) >= 2:
+        first, last = years_comp.iloc[0], years_comp.iloc[-1]
+        movement = "increased" if last["Debt"] > first["Debt"] else (
+            "decreased" if last["Debt"] < first["Debt"] else "stayed unchanged")
+        st.write(f"**2. Comparable trend:** Debt {movement} from US$ {first['Debt']:,.2f} "
+                 f"billion ({int(first['Year'])}) to US$ {last['Debt']:,.2f} billion "
+                 f"({int(last['Year'])}) across the same {common_count} countries.")
     else:
-        st.info("No earlier available year was found for this selection, so a year comparison is not shown.")
+        st.write("**2. Comparable trend:** Insufficient comparable years.")
 
-    if country == "All countries" and region == "All regions" and len(region_data) > 1:
-        lead = region_data.loc[region_data["Debt_Billion"].idxmax()]
-        total_regions = region_data["Debt_Billion"].sum()
-        if total_regions > 0:
-            st.write(
-                f"**Regional insight:** {lead['Region']} accounts for "
-                f"{lead['Debt_Billion'] / total_regions * 100:.1f}% "
-                "of the selected debt across the included regions."
-            )
-    elif region != "All regions":
-        st.write(f"**Regional filter:** Results are restricted to {region}.")
-    elif country != "All countries":
-        st.write("**Regional comparison:** Choose All countries and All regions to compare regions.")
+    if region == "All Regions" and country == "All Countries" and total > 0:
+        biggest = by_region.loc[by_region["Debt"].idxmax()]
+        st.write(f"**3. Regional share:** {biggest['Region']} contributes "
+                 f"{biggest['Debt']/total*100:.2f}% of selected countries' debt.")
+    else:
+        st.write("**3. Regional share:** Select all regions and all countries to compare.")
 
-    if not compare.empty:
-        component_values = dict(zip(compare["Code"], compare["Debt_Billion"]))
-        long_term = component_values.get("DT.DOD.DLXF.CD")
-        short_term = component_values.get("DT.DOD.DSTC.CD")
-        if (
-            long_term is not None and short_term is not None
-            and pd.notna(long_term) and pd.notna(short_term)
-            and long_term >= 0 and short_term >= 0 and long_term + short_term > 0
-        ):
-            long_share = long_term / (long_term + short_term) * 100
-            st.write(
-                f"**Maturity insight:** Long-term debt makes up {long_share:.1f}% "
-                "of the long-term plus short-term values in this selection."
-            )
+    long_term = component.get(INDICATORS["Long-term Debt"])
+    short_term = component.get(INDICATORS["Short-term Debt"])
+    if pd.notna(long_term) and pd.notna(short_term):
+        st.write(f"**4. Debt composition:** Long-term debt is US$ {long_term:,.2f} billion; "
+                 f"short-term debt is US$ {short_term:,.2f} billion. "
+                 "These are components, not additional amounts on top of total debt.")
+    else:
+        st.write("**4. Debt composition:** Both components are needed.")
 
-    st.subheader("Filtered Data")
-    st.dataframe(data.head(100), use_container_width=True, hide_index=True)
-    st.download_button("Download filtered CSV", data.to_csv(index=False), "debt_data.csv", "text/csv")
+    if not change.empty:
+        increases = change[change["Difference"] > 0]
+        decreases = change[change["Difference"] < 0]
+        pieces = []
+        if not increases.empty:
+            rise = increases.loc[increases["Difference"].idxmax()]
+            pieces.append(f"largest increase: {rise['Country']} (+US$ {rise['Difference']:,.2f} bn)")
+        if not decreases.empty:
+            fall = decreases.loc[decreases["Difference"].idxmin()]
+            pieces.append(f"largest decrease: {fall['Country']} (US$ {fall['Difference']:,.2f} bn)")
+        st.write("**5. Year-over-year change:** " + ("; ".join(pieces) if pieces else
+                 "No change among matched countries.") + ".")
+    else:
+        st.write("**5. Year-over-year change:** No matched observations.")
 
-elif page == "SQL Queries":
-    st.title("SQL Queries")
+    if not heat.empty and heat.notna().any().any():
+        peak_country, peak_year = heat.stack().idxmax()
+        peak_amount = heat.loc[peak_country, peak_year]
+        st.write(f"**6. Heatmap:** Among displayed cells, {peak_country} in {int(peak_year)} "
+                 f"has the highest debt (US$ {peak_amount:,.2f} bn).")
+    else:
+        st.write("**6. Heatmap:** No values to compare.")
+
+    if len(positive) > 5 and positive["Debt"].sum() > 0:
+        concentration = positive.nlargest(5, "Debt")["Debt"].sum() / positive["Debt"].sum() * 100
+        st.write(f"**7. Debt concentration:** The top five countries account for "
+                 f"{concentration:.2f}% of positive debt among the selected countries.")
+    else:
+        st.write("**7. Debt concentration:** Select at least six countries with positive debt.")
+
+    if region_average is not None:
+        amount = float(current["Debt"].iloc[0])
+        comparison = "above" if amount > region_average else (
+            "below" if amount < region_average else "equal to")
+        st.write(f"**8. Regional comparison:** {country} is {comparison} its regional "
+                 f"country average (US$ {amount:,.2f} bn vs US$ {region_average:,.2f} bn).")
+    else:
+        st.write("**8. Regional comparison:** Select one country.")
+
+    rate_row = valid_growth[valid_growth["Year"] == year]
+    if not rate_row.empty:
+        rate = float(rate_row["Growth (%)"].iloc[0])
+        st.write(f"**9. Annual growth:** Comparable-country debt changed "
+                 f"{rate:+.2f}% from {year-1} to {year}.")
+    else:
+        st.write("**9. Annual growth:** No comparable growth rate for the selected year.")
+
+
+if page == "SQL Queries":
+    st.header("SQL Queries")
+    st.caption("30 practice queries: Basic, Intermediate and Advanced")
     base = """from debt_data d join countries c on d.`Country Code`=c.`Code`
 where d.`Year`=2024 and d.`Series Code`='DT.DOD.DECT.CD' and c.`Region`<>'Unknown'"""
     by_country = f"select d.`Country Name` as Country, d.`Value` as Debt_USD {base}"
@@ -314,11 +396,11 @@ where d.`Year`=2024 and d.`Series Code`='DT.DOD.DECT.CD' and c.`Region`<>'Unknow
     question = st.selectbox("Question", [title for title, _ in questions[level]])
     sql = dict(questions[level])[question]
     st.code(sql, language="sql")
-    if st.button("Run query"):
+    if st.button("Run Query"):
         try:
-            result = read_sql(sql)
+            result = get_data(sql)
             st.write(f"Returned {len(result):,} rows")
             st.dataframe(result, use_container_width=True, hide_index=True)
-            st.download_button("Download result CSV", result.to_csv(index=False), "sql_result.csv", "text/csv")
-        except mysql.connector.Error as exc:
-            st.error(f"MySQL query failed: {exc}")
+        except Exception as error:
+            st.error("Query failed")
+            st.code(str(error))
