@@ -1,170 +1,283 @@
-# International Debt Analysis
 
-## About the Project
+# International Debt Analysis Dashboard
 
-This is my Data Analysis project using Python, MySQL, and Streamlit.
+## Project Overview
 
-The main objective of this project is to analyze international debt data and understand debt patterns across different countries, regions, and years.
+The International Debt Analysis Dashboard is a data analytics project developed using Python, MySQL, Pandas, Plotly, and Streamlit.
 
-I used Python for data cleaning, MySQL for storing and analyzing the data, and Streamlit for creating an interactive dashboard.
+The project analyzes external debt across different countries, regions, years, and debt categories.
 
-## Tools and Technologies
-
-- Python
-- Pandas
-- Jupyter Notebook
-- MySQL
-- SQL
-- Streamlit
-- Plotly
-- VS Code
-
-## Project Files
-
-| File | Description |
-|---|---|
-| `cleaning.ipynb` | Data cleaning and preparation |
-| `app.py` | Streamlit dashboard |
-| `README.md` | Project documentation |
-| `.gitignore` | Protects private and temporary files |
-
-## Database Information
-
-**Database Name:** `international_debt_final`
-
-The database contains five tables:
-
-| Table | Description |
-|---|---|
-| countries | Country details |
-| indicators | Debt indicator details |
-| debt_data | Debt records |
-| footnotes | Additional dataset information |
-| country_series | Country and indicator metadata |
-
-### Dataset Overview
-
-| Details | Count |
-|---|---:|
-| Individual countries | 120 |
-| Aggregate country groups | 14 |
-| Indicators | 577 |
-| Debt records | 1,487,450 |
-| Footnotes | 1,802 |
-| Country series records | 375 |
+It transforms complex debt data into interactive visualizations and understandable insights to support data exploration and comparison.
 
 ## Project Objectives
 
-- Clean and prepare international debt data
-- Store cleaned data in MySQL
-- Understand database relationships
-- Perform SQL analysis
-- Compare debt across countries
-- Analyze regional debt distribution
-- Understand yearly debt trends
-- Create an interactive dashboard
-- Identify useful insights
+- Analyze external debt across countries.
+- Identify countries with the highest external debt.
+- Understand historical debt trends.
+- Compare regional debt distribution.
+- Analyze long-term and short-term debt.
+- Measure year-over-year debt changes.
+- Identify debt concentration among countries.
+- Generate dynamic analytical insights.
 
-## Project Workflow
+## Technologies Used
 
-### 1. Data Cleaning
+| Technology | Purpose |
+|------------|---------|
+| Python | Application development |
+| MySQL | Database management |
+| Pandas | Data processing and analysis |
+| Plotly | Interactive data visualization |
+| Streamlit | Web dashboard development |
+| VS Code | Development environment |
 
-I used Python and Pandas to:
+## Database Structure
 
-- Understand the dataset
-- Check missing values
-- Check duplicate records
-- Remove unnecessary columns
-- Handle missing values
-- Prepare the cleaned dataset
+Database Name: `international_debt_final`
 
-### 2. Database Management
+The project uses five tables:
 
-I used MySQL to:
+1. `countries` - Country information and regions.
+2. `indicators` - Debt indicator information.
+3. `debt_data` - External debt values across countries and years.
+4. `footnotes` - Additional dataset notes.
+5. `country_series` - Country-series information.
 
-- Store the cleaned data
-- Create five tables
-- Create primary keys
-- Create foreign key relationships
-- Verify the stored data
+### Main Debt Indicators
 
-### 3. SQL Analysis
+| Indicator | Series Code |
+|-----------|-------------|
+| Total External Debt | DT.DOD.DECT.CD |
+| Long-term Debt | DT.DOD.DLXF.CD |
+| Short-term Debt | DT.DOD.DSTC.CD |
 
-I executed 30 SQL queries.
-
-| Level | Queries |
-|---|---:|
-| Basic | 10 |
-| Intermediate | 10 |
-| Advanced | 10 |
-| Total | 30 |
-
-SQL concepts used:
-
-- SELECT and WHERE
-- ORDER BY
-- GROUP BY
-- Aggregate functions
-- JOINS
-- Subqueries
-- Common Table Expressions (CTEs)
-- Window functions
-- Ranking functions
-
-### 4. Dashboard Development
-
-I used Streamlit and Plotly to create an interactive dashboard.
-
-The dashboard helps users understand international debt data through charts, filters, and key insights.
+Debt values are displayed in US$ billions.
 
 ## Dashboard Features
 
-- Country-wise debt analysis
-- Top 10 countries with the highest debt
-- Lowest 10 countries with positive debt
-- Regional debt comparison
-- Year-wise debt trends
-- Long-term and short-term debt analysis
-- Interactive country, region, year, and indicator filters
-- Dynamic key insights
-- SQL analysis section
-- CSV download option
+The application contains two separate pages:
 
-## Key Insights Explored
+### 1. Dashboard
 
-The project helps answer the following questions:
+The Dashboard provides four interactive filters:
 
-1. Which country has the highest external debt?
-2. Which country has the lowest positive external debt?
-3. Which region has the highest external debt?
-4. How has debt changed over the years?
-5. What is India's external debt trend?
-6. How is external debt distributed among countries?
-7. How do long-term and short-term debt differ?
+- Year
+- Region
+- Country
+- Debt Type
 
-The dashboard updates its insights based on the selected filters.
+### Key Performance Indicators (KPIs)
 
-## Data Limitations
+1. Total Countries
+2. Total External Debt
+3. Average Debt per Country
+4. Selected Year
 
-- Aggregate country groups are excluded from individual-country comparisons to avoid double-counting.
-- Some missing values were filled during data cleaning.
-- Higher external debt does not automatically mean higher financial risk.
-- Additional indicators such as GDP and debt-service payments are useful for further analysis.
+### Nine Interactive Visualizations
 
-## What I Learned
+1. **Top 10 Countries by External Debt**
+   - Identifies countries with the highest debt.
 
-Through this project, I practiced:
+2. **External Debt Trend**
+   - Analyzes historical changes in external debt.
 
-- Data cleaning using Python and Pandas
-- MySQL database management
-- SQL queries and joins
-- Data analysis
-- Data visualization
-- Building interactive dashboards
-- Understanding and presenting insights
+3. **Regional Debt Distribution**
+   - Compares debt contributions across regions.
 
-## Conclusion
+4. **Debt Type Comparison**
+   - Compares long-term and short-term debt.
 
-This project helped me understand the complete Data Analysis workflow, from cleaning raw data to creating an interactive dashboard.
+5. **Year-over-Year Debt Change**
+   - Identifies increases and decreases in debt.
 
-I gained practical experience using Python, MySQL, SQL, Streamlit, and Plotly to analyze data and present useful information.
+6. **Country-Year Debt Heatmap**
+   - Visualizes debt patterns across countries and years.
+
+7. **Top 5 Debt Concentration**
+   - Measures the share of debt held by the top five countries.
+
+8. **Country vs Regional Average**
+   - Compares a selected country's debt with its regional average.
+
+9. **Annual Debt Growth Rate**
+   - Calculates percentage changes in debt over time.
+
+## Dynamic Analytical Insights
+
+The dashboard generates nine data-driven insights based on the selected filters.
+
+1. Highest External Debt Country
+2. Historical Debt Trend
+3. Largest Regional Debt Share
+4. Long-term vs Short-term Debt
+5. Year-over-Year Debt Change
+6. Country-Year Debt Patterns
+7. Top Five Debt Concentration
+8. Country vs Regional Average
+9. Annual Debt Growth Rate
+
+These insights help users understand the results without manually calculating every value.
+
+## SQL Queries Page
+
+The SQL Queries page contains 30 analytical queries organized into three difficulty levels.
+
+### Basic SQL - 10 Queries
+
+Covers:
+
+- SELECT
+- WHERE
+- DISTINCT
+- COUNT
+- MIN
+- MAX
+- ORDER BY
+
+### Intermediate SQL - 10 Queries
+
+Covers:
+
+- JOIN
+- GROUP BY
+- HAVING
+- SUM
+- AVG
+- Data aggregation
+
+### Advanced SQL - 10 Queries
+
+Covers:
+
+- Common Table Expressions (CTEs)
+- Subqueries
+- CASE statements
+- Window functions
+- RANK
+- DENSE_RANK
+- ROW_NUMBER
+- LAG
+
+## Installation and Setup
+
+### Step 1: Install Python Libraries
+
+Open the VS Code terminal and run:
+
+```bash
+pip install streamlit pandas plotly mysql-connector-python
+```
+
+### Step 2: Prepare MySQL Database
+
+Ensure that MySQL Server is running and the database exists.
+
+```sql
+SHOW DATABASES;
+
+USE international_debt_final;
+
+SHOW TABLES;
+```
+
+### Step 3: Configure MySQL Connection
+
+Create a folder named `.streamlit`.
+
+Inside it, create a file named `secrets.toml`.
+
+```toml
+[mysql]
+host = "localhost"
+user = "root"
+password = "YOUR_MYSQL_PASSWORD"
+database = "international_debt_final"
+port = 3306
+```
+
+Replace `YOUR_MYSQL_PASSWORD` with your actual MySQL password.
+
+Do not upload this file to GitHub.
+
+### Step 4: Run the Application
+
+Open the terminal in your project directory.
+
+```bash
+python -m streamlit run app.py
+```
+
+Open the local URL displayed by Streamlit.
+
+Usually:
+
+`http://localhost:8501`
+
+## Project Folder Structure
+
+```text
+International-Debt-Analysis/
+|
+|-- app.py
+|-- README.md
+|
+|-- .streamlit/
+    |-- secrets.toml
+```
+
+## Project Workflow
+
+1. Data Collection
+2. Data Inspection
+3. Data Cleaning
+4. Data Validation
+5. MySQL Database Integration
+6. SQL Analysis
+7. Data Visualization
+8. Streamlit Dashboard Development
+9. Insight Generation
+
+## Data Validation
+
+The project includes checks and calculations to improve analytical reliability.
+
+- Detects duplicate country-year-indicator records.
+- Excludes identified aggregate country groups.
+- Handles missing observations in visualizations.
+- Compares matched countries for yearly debt changes.
+- Uses consistent country coverage for historical trend analysis.
+- Avoids adding total debt to its components.
+
+## Skills Demonstrated
+
+- Python programming
+- SQL querying
+- MySQL database integration
+- Pandas data analysis
+- Data cleaning and validation
+- Interactive data visualization
+- KPI development
+- Dashboard development
+- Analytical problem-solving
+- Data interpretation
+
+## Project Limitations
+
+- Requires a prepared MySQL database.
+- Some comparisons depend on data availability.
+- Historical data may include values filled during cleaning.
+- Absolute external debt does not independently measure a country's financial health.
+
+## Future Improvements
+
+- Add debt-to-GDP comparisons.
+- Include additional economic indicators.
+- Improve data-quality reporting.
+- Add automated validation tests.
+- Deploy the dashboard for online access.
+
+## Project Status
+
+The project includes an interactive Streamlit dashboard with nine visualizations, nine dynamic insights, and 30 SQL queries.
+
+End-to-end testing with the live MySQL database is still required before deployment.
